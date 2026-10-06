@@ -1,0 +1,14 @@
+{
+  "name": "skills-scratch",
+  "description": "Scratch space for experimental agent skills — skills graduate to dedicated repositories once stable.",
+  "homepage": "https://github.com/brightmeows/skills-scratch",
+  "repository": "https://github.com/brightmeows/skills-scratch",
+  "license": "MIT",
+  "keywords": [
+    "skills",
+    "experimental",
+    "scratch",
+    "git",
+    "migration"
+  ]
+}

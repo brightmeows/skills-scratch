@@ -1,0 +1,31 @@
+# markdownlint 统一基线（各技能仓库共用；领域特例见文末附加段）
+# 参考: https://github.com/DavidAnson/markdownlint/blob/main/schema/.markdownlint.yaml
+
+# 行长度 — 技能文档允许较长行
+MD013 = { line_length = 200, code_blocks = false, tables = false, headings = false }
+
+# 允许重复标题（不同层级下相同标题很常见）
+MD024 = { siblings_only = true }
+
+# 禁用内联 HTML 检查（代码中的泛型、领域语法尖括号等被误报；附加段可改为白名单）
+MD033 = false
+
+# 允许无语言标识的代码块（纯文本/输出块常见）
+MD040 = false
+
+# 表格列风格 — 紧凑表格是技能仓库风格，不对齐管道也接受
+MD060 = false
+MD055 = false
+
+# 允许用加粗强调替代小标题（agent 文档常用 **xxx** 做虚拟标题）
+MD036 = false
+
+# 允许单文件多 H1（多节文档需要）
+MD025 = false
+
+# 允许混合标题样式（atx / setext）
+MD003 = false
+
+# ===== 领域附加段 =====
+# 各仓按需追加；每条须附注释说明领域原因。追加规则只放宽或收紧本仓噪音，
+# 与基线冲突时以让全仓 markdownlint 通过为准。

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://schemas.agentskills.io/discovery/0.2.0/schema.json",
+  "skills": [
+    {
+      "name": "codeberg-github-migration",
+      "type": "skill-md",
+      "description": "将纯 Codeberg 仓库迁移为“GitHub 主仓库 + Codeberg 镜像”架构时使用。触发词包括：迁移到 GitHub、GitHub 主仓库、Codeberg 镜像、建 GitHub 仓库、GitHub Pages 部署、仓库双平台。涉及跨哈希（sha256 转 sha1）时先加载 git-hash-repo-conversion 技能。不负责 GitHub/GitLab 等其他 forge 之间的迁移，也不负责从 GitHub 迁回 Codeberg。",
+      "url": "https://raw.githubusercontent.com/brightmeows/skills-scratch/main/skills/codeberg-github-migration/SKILL.md",
+      "digest": "sha256:96be9c9a813cff168d1f3052492dbf4b83c38cbc9d8e2e0735c3db28ffa7144e"
+    },
+    {
+      "name": "git-hash-repo-conversion",
+      "type": "skill-md",
+      "description": "将 Git 仓库在 sha256 与 sha1 对象格式之间转换时使用。触发词包括：对象格式转换、sha256 转 sha1、sha1 转 sha256、跨哈希迁移、签名保留、重写历史推 GitHub、object-format。纯文档/普通仓库转换不需要签名字节级保留时不加载。不负责常规 rebase/filter-repo 式历史清理。",
+      "url": "https://raw.githubusercontent.com/brightmeows/skills-scratch/main/skills/git-hash-repo-conversion/SKILL.md",
+      "digest": "sha256:b50fe7b55a503be90091911e544c7d21c8c383fc37d03aebb5ed1812008c2569"
+    }
+  ]
+}

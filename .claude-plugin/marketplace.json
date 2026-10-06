@@ -1,0 +1,12 @@
+{
+  "plugins": [
+    {
+      "name": "skills-scratch",
+      "source": "./",
+      "skills": [
+        "./skills/codeberg-github-migration",
+        "./skills/git-hash-repo-conversion"
+      ]
+    }
+  ]
+}

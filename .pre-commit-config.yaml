@@ -1,0 +1,225 @@
+# pre-commit 配置
+# 安装: pre-commit install
+# 手动运行: pre-commit run --all-files
+# 跳过验证: git commit --no-verify
+repos:
+  # 本地 markdownlint（系统已全局安装 markdownlint-cli）
+  - repo: local
+    hooks:
+      - id: markdownlint
+        name: markdownlint
+        description: 对暂存的 Markdown 文件运行 markdownlint 检查
+        entry: markdownlint
+        args: ["--config", ".markdownlint.toml", "--dot"]
+        language: system
+        types: [markdown]
+        require_serial: false
+
+      - id: check-well-known-list
+        name: Check well-known list
+        description: 验证 skills/ 下 SKILL.md 目录与 index.json 条目一致
+        entry: bash
+        args:
+          - -c
+          - |
+            set -euo pipefail
+            errors=0
+            index_names=$(jq -r '.skills[].name' .well-known/agent-skills/index.json | sort -u)
+            fs_names=$(find skills -name SKILL.md -type f -printf '%h\n' | xargs -I{} basename {} | sort -u)
+            echo "=== SKILL.md 目录 vs index.json ==="
+
+            # Forward: 文件系统中有但 index.json 中无
+            missing_in_index=$(comm -23 <(echo "$fs_names") <(echo "$index_names"))
+            if [ -n "$missing_in_index" ]; then
+              while IFS= read -r name; do
+                path=$(find skills -path "*/$name/SKILL.md" -type f | head -1)
+                echo "  ERROR: $path 的 name='$name' 在 index.json 中无对应条目"
+                errors=$((errors + 1))
+              done <<< "$missing_in_index"
+            fi
+
+            # Reverse: index.json 中有但文件系统中无
+            missing_on_fs=$(comm -13 <(echo "$fs_names") <(echo "$index_names"))
+            if [ -n "$missing_on_fs" ]; then
+              while IFS= read -r name; do
+                echo "  ERROR: index.json 中 '$name' 无对应的 SKILL.md 文件"
+                errors=$((errors + 1))
+              done <<< "$missing_on_fs"
+            fi
+
+            if [ "$errors" -gt 0 ]; then
+              echo "FAILED: ${errors} 个错误"
+              exit 1
+            fi
+            echo "OK: 技能列表一致"
+        language: system
+        pass_filenames: false
+      - id: check-well-known-digest
+        name: Check well-known digest
+        description: 验证 index.json 中的 SHA256 digest 与根 SKILL.md 匹配
+        entry: bash
+        args:
+          - -c
+          - |
+            set -euo pipefail
+            errors=0
+            echo "=== SHA256 digest 匹配检查 ==="
+            while IFS=$'\t' read -r name expected_digest; do
+              skill_file=$(find skills -path "*/$name/SKILL.md" -type f | head -1)
+              if [ -z "$skill_file" ]; then
+                echo "  ERROR: index.json 中 '$name' 对应的 SKILL.md 不存在"
+                errors=$((errors + 1))
+                continue
+              fi
+              computed=$(sha256sum "$skill_file" | cut -d' ' -f1)
+              expected=$(echo "$expected_digest" | sed 's/^sha256://')
+              if [ "$computed" != "$expected" ]; then
+                echo "  ERROR: $name digest 不匹配 ($skill_file)"
+                echo "         index.json:  sha256:${expected}"
+                echo "         实际值:      sha256:${computed}"
+                errors=$((errors + 1))
+              fi
+            done < <(jq -r '.skills[] | [.name, .digest] | @tsv' .well-known/agent-skills/index.json)
+            if [ "$errors" -gt 0 ]; then
+              echo "FAILED: ${errors} 个 digest 错误"
+              exit 1
+            fi
+            echo "OK: 所有 digest 匹配"
+        language: system
+        pass_filenames: false
+
+      - id: check-skill-name-consistency
+        name: Check SKILL.md name consistency
+        description: 验证所有 SKILL.md frontmatter name 与父目录一致；根 skill 的 description 与 index.json 一致
+        entry: python3
+        args:
+          - -c
+          - |
+            import json, yaml, sys
+            from pathlib import Path
+            errors = 0
+            print("=== SKILL.md 名称一致性检查 ===")
+            for skill_file in sorted(Path("skills").rglob("SKILL.md")):
+                name = skill_file.parent.name
+                text = skill_file.read_text(encoding="utf-8")
+                parts = text.split("---", 2)
+                if len(parts) < 3:
+                    print(f"  ERROR: {skill_file} 缺少 frontmatter")
+                    errors += 1
+                    continue
+                fm = yaml.safe_load(parts[1])
+                fm_name = fm.get("name", "")
+                fm_desc = fm.get("description", "")
+
+                if fm_name != name:
+                    print(f"  ERROR: {skill_file}")
+                    print(f"         frontmatter name='{fm_name}' ≠ 父目录名='{name}'")
+                    errors += 1
+
+                index = json.loads(Path(".well-known/agent-skills/index.json").read_text(encoding="utf-8"))
+                indexed = {s["name"]: s for s in index.get("skills", [])}
+                if name in indexed:
+                    if fm_desc != indexed[name].get("description", ""):
+                        print(f"  ERROR: {skill_file}")
+                        print(f"         frontmatter description ≠ index.json description")
+                        errors += 1
+            if errors:
+                print(f"FAILED: {errors} 个一致性错误")
+                sys.exit(1)
+            print("OK: 所有名称一致")
+        language: system
+        pass_filenames: false
+
+      - id: check-plugin-skills-list
+        name: Check marketplace.json skills list
+        description: 验证 .claude-plugin/marketplace.json 的 skills 数组与实际技能目录一致（跳过 .system/）
+        entry: bash
+        args:
+          - -c
+          - |
+            set -euo pipefail
+            errors=0
+            echo "=== marketplace.json skills 数组 vs SKILL.md 目录 ==="
+            # 从 marketplace.json 提取所有 skill 路径的 basename
+            plugin_skills=$(jq -r '.plugins[].skills[]' .claude-plugin/marketplace.json | xargs -I{} basename {} | sort -u)
+            # 文件系统实际技能名（仅一层深度，排除 .system/）
+            fs_skills=$(find skills -maxdepth 2 -name SKILL.md -type f -not -path "skills/.system/*" -printf '%h\n' | xargs -I{} basename {} | sort -u)
+
+            # Forward: 文件系统中有但 marketplace.json 中无
+            missing_in_manifest=$(comm -23 <(echo "$fs_skills") <(echo "$plugin_skills"))
+            if [ -n "$missing_in_manifest" ]; then
+              while IFS= read -r name; do
+                path=$(find skills -path "*/$name/SKILL.md" -type f -not -path "skills/.system/*" | head -1)
+                echo "  ERROR: $path 存在但未列入 marketplace.json"
+                errors=$((errors + 1))
+              done <<< "$missing_in_manifest"
+            fi
+
+            # Reverse: marketplace.json 中有但文件系统中无
+            missing_on_fs=$(comm -13 <(echo "$fs_skills") <(echo "$plugin_skills"))
+            if [ -n "$missing_on_fs" ]; then
+              while IFS= read -r name; do
+                echo "  ERROR: marketplace.json 中 '$name' 无对应的 SKILL.md 文件"
+                errors=$((errors + 1))
+              done <<< "$missing_on_fs"
+            fi
+
+            if [ "$errors" -gt 0 ]; then
+              echo "FAILED: ${errors} 个错误"
+              echo "修复：编辑 .claude-plugin/marketplace.json 的 skills 数组，使其与 skills/ 下目录一致"
+              exit 1
+            fi
+            echo "OK: marketplace.json skills 数组与技能目录一致"
+        language: system
+        pass_filenames: false
+
+      - id: check-skill-md-format
+        name: Check SKILL.md format
+        description: 验证所有 SKILL.md frontmatter 字段格式与 body 行数合规
+        entry: python3
+        args:
+          - -c
+          - |
+            import re, yaml, sys
+            from pathlib import Path
+            errors = 0
+            print("=== SKILL.md 格式检查 ===")
+            for skill_file in sorted(Path("skills").rglob("SKILL.md")):
+                text = skill_file.read_text(encoding="utf-8")
+                parts = text.split("---", 2)
+                if len(parts) < 3:
+                    print(f"  ERROR: {skill_file} 缺少 frontmatter")
+                    errors += 1
+                    continue
+                fm = yaml.safe_load(parts[1])
+                fm_name = fm.get("name", "")
+                fm_desc = fm.get("description", "")
+
+                if len(fm_name) > 64:
+                    print(f"  ERROR: {skill_file} name 超过 64 字符（当前 {len(fm_name)}）")
+                    errors += 1
+                if not re.match(r"^[a-z0-9]+(-[a-z0-9]+)*$", fm_name):
+                    print(f"  ERROR: {skill_file} name='{fm_name}' 不符合命名规则")
+                    print("         （仅小写字母/数字/连字符，无连续或首尾连字符）")
+                    errors += 1
+                if re.search(r"anthropic|claude", fm_name, re.IGNORECASE):
+                    print(f"  ERROR: {skill_file} name='{fm_name}' 含保留词")
+                    errors += 1
+
+                if len(fm_desc) > 1024:
+                    print(f"  ERROR: {skill_file} description 超过 1024 字符（当前 {len(fm_desc)}）")
+                    errors += 1
+                if re.search(r"<[^>]+>", fm_name + fm_desc):
+                    print(f"  ERROR: {skill_file} name/description 含 XML 标签")
+                    errors += 1
+
+                body_lines = len(parts[2].strip().splitlines())
+                if body_lines >= 500:
+                    print(f"  ERROR: {skill_file} body ≥500 行（当前 {body_lines}，目标 <500）")
+                    errors += 1
+            if errors:
+                print(f"FAILED: {errors} 个格式错误")
+                sys.exit(1)
+            print("OK: 所有 SKILL.md 格式合规")
+        language: system
+        pass_filenames: false
